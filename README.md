@@ -210,8 +210,30 @@ These three functions are used in combination for our attack.  The following ste
 1. Run `hash_attack_forge` with the victim interface, any nonce, and our plaintext subscription.
 1. Write the subscription to a file, or flash it directly onto the victim device.
 
+#### Python Script
+```python
+DECODER_ID = 0xf870d9c5
+SUBSCRIPTION_PT_SIZE = struct.calcsize("<IQQI32s").to_bytes(4, byteorder='little')
+INTERFACE = DecoderIntf(sys.argv[1])
+
+subscriptions = ('./own.sub', './pirated.sub', './expired.sub')
+for subscription in subscriptions:
+    sub_bin = None
+    with open(subscription, 'rb') as file:
+        sub_bin = file.read()
+    nonce = sub_bin[48:60]
+    decrypted_sub = hash_attack_decrypt(INTERFACE, nonce, sub_bin[64:])
+    chan_key = decrypted_sub[-32:]
+    chan_num = int.from_bytes(decrypted_sub[-36:-32], byteorder='little')
+    pt = struct.pack("<IQQI32s", DECODER_ID, 0, 2**64-1, chan_num, chan_key)
+    patched_sub = hash_attack_forge(INTERFACE, nonce, pt)
+    with open('./patched_' + subscription[2:], 'wb') as file:
+        file.write(bytes(16) + patched_sub[2] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])
+```
 ### Side Notes
 #### Why Forge Subscriptions If We Have the Channel Key
 We chose to forge subscriptions instead of decrypting the frame packets manually because the process of decrypting an entire frame packet would have taken longer than forging a subscription.  Because we don't have the `SYSKEY`, we would have had to repeat the hash attack on each frame packet then decrypt the frame encrypted with the channel key.
 #### Device ID and Decoder ID
 Device ID and Decoder ID are used interchangeably and mean exactly the same thing.  The Morgan State codebase uses both terms, so we used it in contexts where they used it in order to make reviewing their source code easier.
+#### Extras
+To view the files and scripts, go to [this](https://github.com/Geeoon/ectf25-MorganState-WriteUp) repo.

@@ -75,7 +75,7 @@ for subscription in subscriptions:
     nonce = sub_bin[48:60]
     decrypted_sub = hash_attack_decrypt(INTERFACE, nonce, sub_bin[64:])
     chan_key = decrypted_sub[-32:]
-    chan_num = decrypted_sub[-36:-32]
+    chan_num = int.from_bytes(decrypted_sub[-36:-32], byteorder='little')
     pt = struct.pack("<IQQI32s", DECODER_ID, 0, 2**64-1, chan_num, chan_key)
     patched_sub = hash_attack_forge(INTERFACE, nonce, pt)
     with open('./patched_' + subscription[2:], 'wb') as file:

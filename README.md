@@ -1,5 +1,6 @@
 # MITRE eCTF 2025 Morgan State Write Up
 ## Forging Morgan State's Subscriptions 
+### By the University of Washington (Batman's Kitchen)
 #### Overview
 A cryptographic oracle allowed us to forge subscriptions with custom parameters, which allowed us to modify existing subscriptions and get three attack scenarios (expired, pirated, and recording)
 
@@ -119,7 +120,7 @@ if (compare(hashout,new_frame->Hash,sizeof(hashout))) {
 }
 // ---- SNIP ----
 ```
-(A similar code snippet exists the subscription checking, but because we don't want successful decryptions to fill up our subscription limits with garbage (only 8), we chose to use the `decode` function.
+(A similar code snippet exists the subscription checking, but because we don't want successful decryptions to fill up our subscription limits with garbage (only 8), we chose to use the `decode` function.)
 
 Essentially, this oracle allows us to check, for each byte at a time, if our plaintext/ciphertext was correct, reducing the total possible number of combinations to 256 * N, where N is the length of the plaintext/ciphertext (scales linearly with length).
 
@@ -137,7 +138,7 @@ In order to start our exploit, we need to create an oracle function that allows 
 @param ct the ciphertext to be checked against \p plaintext for a match
 @return True when the plaintext matches the decrypted ciphertext, False otherwise
 """
-def oracle(i, nonce, pt, ct):
+def oracle(i: DecoderIntf, nonce: bytes, pt: bytes, ct: bytes):
     try:
         sha_engine = hashlib.sha256()
         sha_engine.update(pt)
@@ -160,7 +161,9 @@ In order to modify parts of a subscription, we first need to get the channel key
 @param nonce the nonce that that \p ciphertext was created with
 @param \p ciphertext the ciphertext to be decrypted
 @return the plaintext, i.e., \p ciphertext decrypted
-@throws Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
+@return the nonce used, same as \p nonce
+@return SHA-256 digest of the plaintext that was decrypted
+@throw Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
 """
 def hash_attack_decrypt(interface: DecoderIntf, nonce: bytes, ciphertext: bytes):
     plaintext = bytearray(len(ciphertext))
@@ -171,7 +174,9 @@ def hash_attack_decrypt(interface: DecoderIntf, nonce: bytes, ciphertext: bytes)
                 break
             if j == 255:
                 raise Exception('Not found')
-    return bytes(plaintext)
+    sha_engine = hashlib.sha256()
+    sha_engine.update(bytes(plaintext))
+    return bytes(plaintext), nonce, sha_engine.digest()
 ```
 This script works exactly as described in the Hash Attack Decryption section and will get us the decrypted subscription.  The final 32 bytes of the plaintext will contain the channel key.
 
@@ -184,7 +189,9 @@ In order to create forged subscriptions, we need to create a function that will 
 @param nonce the nonce to be used to create a forged ciphertext
 @param plaintext the plaintext that the \p nonce and ciphertext returned should decrypt to
 @return the ciphertext that was forged
-@throws Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
+@return the nonce that was used by the oracle function, same as \p nonce
+@return the hash corresponding to the plaintext that was forged 
+@throw Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
 """
 def hash_attack_forge(interface: DecoderIntf, nonce: bytes, plaintext: bytes):
     ciphertext = bytearray(len(plaintext))
@@ -195,7 +202,9 @@ def hash_attack_forge(interface: DecoderIntf, nonce: bytes, plaintext: bytes):
                 break
             if j == 255:
                 raise Exception('Not found.')
-    return bytes(ciphertext)
+    sha_engine = hashlib.sha256()
+    sha_engine.update(plaintext)
+    return bytes(ciphertext), nonce, sha_engine.digest()
 ```
 The script follows the same process as described in the Hash Attack Forging section.
 
@@ -208,7 +217,8 @@ These three functions are used in combination for our attack.  The following ste
 1. Extract the channel number from the 4 before the channel key.
 1. Construct a plaintext subscription by concatenating our device id (`0xf870d9c5`), start time (`0`), end time (`2**64-1`, the max), channel number, and channel key.
 1. Run `hash_attack_forge` with the victim interface, any nonce, and our plaintext subscription.
-1. Write the subscription to a file, or flash it directly onto the victim device.
+1. Write the subscription to the victim decoder.
+1. Decode frames on the decoder and get the flag.
 
 #### Python Script
 ```python
@@ -223,12 +233,12 @@ for subscription in subscriptions:
         sub_bin = file.read()
     nonce = sub_bin[48:60]
     decrypted_sub = hash_attack_decrypt(INTERFACE, nonce, sub_bin[64:])
-    chan_key = decrypted_sub[-32:]
-    chan_num = int.from_bytes(decrypted_sub[-36:-32], byteorder='little')
-    pt = struct.pack("<IQQI32s", DECODER_ID, 0, 2**64-1, chan_num, chan_key)
+    chan_key = decrypted_sub[0][-32:]
+    chan_num = int.from_bytes(decrypted_sub[0][-36:-32], byteorder='little')
+    pt = struct.pack("<IQQI32s", DECODER_ID, 0, 2**64 - 1, chan_num, chan_key)
     patched_sub = hash_attack_forge(INTERFACE, nonce, pt)
     with open(f'./patched_{subscription[2:]}', 'wb') as file:
-        file.write(bytes(16) + patched_sub[1] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])
+        file.write(bytes(16) + patched_sub[2] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])
 ```
 ### Side Notes
 #### Why Forge Subscriptions If We Have the Channel Key

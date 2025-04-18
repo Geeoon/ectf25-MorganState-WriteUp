@@ -1,2 +1,5 @@
 tools
+out
 .venv
+own_truth.sub
+test.py

@@ -11,7 +11,7 @@ from ectf25.utils.decoder import DecoderIntf, DecoderError
 @param ct the ciphertext to be checked against \p plaintext for a match
 @return True when the plaintext matches the decrypted ciphertext, False otherwise
 """
-def oracle(i, nonce, pt, ct):
+def oracle(i: DecoderIntf, nonce: bytes, pt: bytes, ct: bytes):
     try:
         sha_engine = hashlib.sha256()
         sha_engine.update(pt)
@@ -30,7 +30,9 @@ def oracle(i, nonce, pt, ct):
 @param nonce the nonce that that \p ciphertext was created with
 @param \p ciphertext the ciphertext to be decrypted
 @return the plaintext, i.e., \p ciphertext decrypted
-@throws Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
+@return the nonce used, same as \p nonce
+@return SHA-256 digest of the plaintext that was decrypted
+@throw Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
 """
 def hash_attack_decrypt(interface: DecoderIntf, nonce: bytes, ciphertext: bytes):
     plaintext = bytearray(len(ciphertext))
@@ -41,7 +43,9 @@ def hash_attack_decrypt(interface: DecoderIntf, nonce: bytes, ciphertext: bytes)
                 break
             if j == 255:
                 raise Exception('Not found')
-    return bytes(plaintext)
+    sha_engine = hashlib.sha256()
+    sha_engine.update(bytes(plaintext))
+    return bytes(plaintext), nonce, sha_engine.digest()
 
 
 """
@@ -50,8 +54,9 @@ def hash_attack_decrypt(interface: DecoderIntf, nonce: bytes, ciphertext: bytes)
 @param nonce the nonce to be used to create a forged ciphertext
 @param plaintext the plaintext that the \p nonce and ciphertext returned should decrypt to
 @return the ciphertext that was forged
+@return the nonce that was used by the oracle function, same as \p nonce
 @return the hash corresponding to the plaintext that was forged 
-@throws Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
+@throw Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
 """
 def hash_attack_forge(interface: DecoderIntf, nonce: bytes, plaintext: bytes):
     ciphertext = bytearray(len(plaintext))
@@ -63,8 +68,9 @@ def hash_attack_forge(interface: DecoderIntf, nonce: bytes, plaintext: bytes):
             if j == 255:
                 raise Exception('Not found.')
     sha_engine = hashlib.sha256()
-    sha_engine.update(bytes(plaintext))
-    return bytes(plaintext), sha_engine.digest()
+    sha_engine.update(plaintext)
+    return bytes(ciphertext), nonce, sha_engine.digest()
+
 
 DECODER_ID = 0xf870d9c5
 SUBSCRIPTION_PT_SIZE = struct.calcsize("<IQQI32s").to_bytes(4, byteorder='little')
@@ -77,9 +83,9 @@ for subscription in subscriptions:
         sub_bin = file.read()
     nonce = sub_bin[48:60]
     decrypted_sub = hash_attack_decrypt(INTERFACE, nonce, sub_bin[64:])
-    chan_key = decrypted_sub[-32:]
-    chan_num = int.from_bytes(decrypted_sub[-36:-32], byteorder='little')
-    pt = struct.pack("<IQQI32s", DECODER_ID, 0, 2**64-1, chan_num, chan_key)
+    chan_key = decrypted_sub[0][-32:]
+    chan_num = int.from_bytes(decrypted_sub[0][-36:-32], byteorder='little')
+    pt = struct.pack("<IQQI32s", DECODER_ID, 0, 2**64 - 1, chan_num, chan_key)
     patched_sub = hash_attack_forge(INTERFACE, nonce, pt)
     with open(f'./patched_{subscription[2:]}', 'wb') as file:
-        file.write(bytes(16) + patched_sub[1] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])
+        file.write(bytes(16) + patched_sub[2] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])

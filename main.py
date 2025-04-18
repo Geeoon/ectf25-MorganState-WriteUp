@@ -50,6 +50,7 @@ def hash_attack_decrypt(interface: DecoderIntf, nonce: bytes, ciphertext: bytes)
 @param nonce the nonce to be used to create a forged ciphertext
 @param plaintext the plaintext that the \p nonce and ciphertext returned should decrypt to
 @return the ciphertext that was forged
+@return the hash corresponding to the plaintext that was forged 
 @throws Exception if the ciphertext couldn't be decrypted, probably means the oracle isn't working
 """
 def hash_attack_forge(interface: DecoderIntf, nonce: bytes, plaintext: bytes):
@@ -61,7 +62,9 @@ def hash_attack_forge(interface: DecoderIntf, nonce: bytes, plaintext: bytes):
                 break
             if j == 255:
                 raise Exception('Not found.')
-    return bytes(ciphertext)
+    sha_engine = hashlib.sha256()
+    sha_engine.update(bytes(plaintext))
+    return bytes(plaintext), sha_engine.digest()
 
 DECODER_ID = 0xf870d9c5
 SUBSCRIPTION_PT_SIZE = struct.calcsize("<IQQI32s").to_bytes(4, byteorder='little')
@@ -78,5 +81,5 @@ for subscription in subscriptions:
     chan_num = int.from_bytes(decrypted_sub[-36:-32], byteorder='little')
     pt = struct.pack("<IQQI32s", DECODER_ID, 0, 2**64-1, chan_num, chan_key)
     patched_sub = hash_attack_forge(INTERFACE, nonce, pt)
-    with open('./patched_' + subscription[2:], 'wb') as file:
-        file.write(bytes(16) + patched_sub[2] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])
+    with open(f'./patched_{subscription[2:]}', 'wb') as file:
+        file.write(bytes(16) + patched_sub[1] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])

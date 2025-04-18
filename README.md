@@ -227,8 +227,8 @@ for subscription in subscriptions:
     chan_num = int.from_bytes(decrypted_sub[-36:-32], byteorder='little')
     pt = struct.pack("<IQQI32s", DECODER_ID, 0, 2**64-1, chan_num, chan_key)
     patched_sub = hash_attack_forge(INTERFACE, nonce, pt)
-    with open('./patched_' + subscription[2:], 'wb') as file:
-        file.write(bytes(16) + patched_sub[2] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])
+    with open(f'./patched_{subscription[2:]}', 'wb') as file:
+        file.write(bytes(16) + patched_sub[1] + nonce + SUBSCRIPTION_PT_SIZE + patched_sub[0])
 ```
 ### Side Notes
 #### Why Forge Subscriptions If We Have the Channel Key
